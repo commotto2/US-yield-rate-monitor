@@ -1,11 +1,13 @@
 import datetime
 import io
 import os
-import requests
-import matplotlib.pyplot as plt
+from io import StringIO
+
 import matplotlib.dates as mdates
-import yfinance as yf
+import matplotlib.pyplot as plt
 import pandas as pd
+import requests
+import yfinance as yf
 
 # ── 설정 ──────────────────────────────────────────────
 TELEGRAM_BOT_TOKEN = os.environ["TELEGRAM_BOT_TOKEN"]
@@ -13,69 +15,77 @@ TELEGRAM_CHAT_ID   = os.environ["TELEGRAM_CHAT_ID"]
 
 # ── 1. 데이터 수집 ────────────────────────────────────
 end_date   = datetime.date.today()
-start_date = end_date - datetime.timedelta(days=5 * 365)
+start_date = end_date - datetime.timedelta(days=10 * 365 + 3)  # 10년치
 
 print("Downloading treasury yield data...")
 
-# 10Y, 5Y: yfinance
-raw = yf.download(["^FVX", "^TNX"], start=start_date, end=end_date)["Close"]
-data = raw.rename(columns={
-    "^FVX": "5Y Treasury",
-    "^TNX": "10Y Treasury",
-})
-
-# 2Y: FRED via pandas_datareader
-print("Downloading 2Y treasury yield from FRED...")
-import pandas_datareader.data as web
-fred_df = web.DataReader("DGS2", "fred", start_date, end_date)
-fred_df.columns = ["2Y Treasury"]
-fred_df.index = pd.to_datetime(fred_df.index)
-
-# 합치기
-data = data.join(fred_df, how="outer")
+# 10년물: yfinance
+raw = yf.download(["^TNX"], start=start_date, end=end_date)["Close"]
+data = raw.rename(columns={"^TNX": "10Y Treasury"})
 data.index = pd.to_datetime(data.index)
 
+# FRED에서 3개월물(DGS3MO), 2년물(DGS2) 가져오기
+def fetch_fred(series_id: str, col_name: str) -> pd.DataFrame:
+    url = f"https://fred.stlouisfed.org/graph/fredgraph.csv?id={series_id}"
+    resp = requests.get(url, headers={"User-Agent": "Mozilla/5.0"})
+    print(f"FRED {series_id} status: {resp.status_code}")
+    df = pd.read_csv(StringIO(resp.text))
+    df.columns = ["DATE", col_name]
+    df["DATE"] = pd.to_datetime(df["DATE"], errors="coerce")
+    df = df.dropna(subset=["DATE"]).set_index("DATE")
+    df[col_name] = pd.to_numeric(df[col_name], errors="coerce")
+    return df
+
+data = data.join(fetch_fred("DGS3MO", "3M T-Bill"), how="outer")
+data = data.join(fetch_fred("DGS2",   "2Y Treasury"), how="outer")
+data = data.loc[start_date.strftime("%Y-%m-%d"):]
+
 # ── 2. 그래프 생성 ────────────────────────────────────
-fig, axes = plt.subplots(3, 1, figsize=(12, 16))
-fig.patch.set_facecolor("#0f1117")
+SERIES = [
+    ("10Y Treasury", "#4fa3e0", "10Y"),
+    ("2Y Treasury",  "#f0a500", "2Y"),
+    ("3M T-Bill",    "#e05c7a", "3M"),
+]
 
 periods = [
-    {"title": "Recent 1 Year",  "days": 365,     "ax": axes[0]},
-    {"title": "Recent 3 Years", "days": 3 * 365, "ax": axes[1]},
-    {"title": "Recent 5 Years", "days": 5 * 365, "ax": axes[2]},
+    {"title": "Recent 3 Months", "days": 90},
+    {"title": "Recent 1 Year",   "days": 365},
+    {"title": "Recent 5 Years",  "days": 5 * 365},
+    {"title": "Recent 10 Years", "days": 10 * 365},
 ]
 
-SERIES = [
-    ("10Y Treasury", "#4fa3e0", "FRED:DGS10"),
-    ("5Y Treasury",  "#50c878", "^FVX"),
-    ("2Y Treasury",  "#f0a500", "FRED:DGS2"),
-]
+fig, axes = plt.subplots(4, 1, figsize=(13, 20))
+fig.patch.set_facecolor("#0f1117")
 
-for p in periods:
-    ax       = p["ax"]
-    cutoff   = end_date - datetime.timedelta(days=p["days"])
+for i, p in enumerate(periods):
+    ax      = axes[i]
+    cutoff  = end_date - datetime.timedelta(days=p["days"])
     filtered = data.loc[cutoff.strftime("%Y-%m-%d"):]
 
     ax.set_facecolor("#1a1d27")
 
-    for col, color, ticker in SERIES:
+    for col, color, label in SERIES:
         if col not in filtered.columns:
             continue
-        ax.plot(filtered.index, filtered[col],
-                label=f"{col[:2]}Y ({ticker})", color=color, linewidth=2)
+        series = filtered[col].dropna()
+        if series.empty:
+            continue
+        ax.plot(series.index, series,
+                label=label, color=color, linewidth=1.8)
 
     ax.set_title(f"US Treasury Yields — {p['title']}",
-                 fontsize=13, fontweight="bold", color="white", pad=10)
-    ax.set_ylabel("Yield (%)", fontsize=11, color="#aaaaaa")
-    ax.tick_params(colors="#aaaaaa")
-    ax.grid(True, linestyle="--", alpha=0.3, color="#555555")
+                 fontsize=12, fontweight="bold", color="white", pad=8)
+    ax.set_ylabel("Yield (%)", fontsize=10, color="#aaaaaa")
+    ax.tick_params(colors="#aaaaaa", labelsize=9)
+    ax.grid(True, linestyle="--", alpha=0.25, color="#555555")
     ax.legend(loc="upper left", framealpha=0.3,
-              labelcolor="white", facecolor="#2a2d3a")
+              labelcolor="white", facecolor="#2a2d3a", fontsize=9)
 
     for spine in ax.spines.values():
         spine.set_edgecolor("#333344")
 
-    for col, color, _ in SERIES:
+    # 최고/최저 점선
+    for col, color, label in SERIES:
         if col not in filtered.columns:
             continue
         col_data = filtered[col].dropna()
@@ -83,20 +93,31 @@ for p in periods:
             continue
         hi = col_data.max()
         lo = col_data.min()
-        ax.axhline(hi, linestyle=":", linewidth=0.8, color=color, alpha=0.5)
-        ax.axhline(lo, linestyle=":", linewidth=0.8, color=color, alpha=0.5)
+        ax.axhline(hi, linestyle=":", linewidth=0.8, color=color, alpha=0.45)
+        ax.axhline(lo, linestyle=":", linewidth=0.8, color=color, alpha=0.45)
         ax.text(filtered.index[-1], hi,
-                f" {col[:2]}Y Hi {hi:.2f}%", color=color,
-                fontsize=8, va="bottom", ha="right")
+                f" {label} Hi {hi:.2f}%", color=color,
+                fontsize=7.5, va="bottom", ha="right")
         ax.text(filtered.index[-1], lo,
-                f" {col[:2]}Y Lo {lo:.2f}%", color=color,
-                fontsize=8, va="top", ha="right")
+                f" {label} Lo {lo:.2f}%", color=color,
+                fontsize=7.5, va="top", ha="right")
 
-    ax.xaxis.set_major_formatter(mdates.DateFormatter("%Y-%m"))
+    # x축 포맷: 기간별로 다르게
+    if p["days"] <= 90:
+        ax.xaxis.set_major_formatter(mdates.DateFormatter("%m-%d"))
+        ax.xaxis.set_major_locator(mdates.WeekdayLocator(interval=2))
+    elif p["days"] <= 365:
+        ax.xaxis.set_major_formatter(mdates.DateFormatter("%Y-%m"))
+        ax.xaxis.set_major_locator(mdates.MonthLocator(interval=1))
+    else:
+        ax.xaxis.set_major_formatter(mdates.DateFormatter("%Y-%m"))
+        ax.xaxis.set_major_locator(mdates.MonthLocator(interval=6))
+
+    plt.setp(ax.xaxis.get_majorticklabels(), rotation=30, ha="right")
 
 today_str = end_date.strftime("%Y-%m-%d")
 fig.suptitle(f"US Treasury Yield Monitor  |  {today_str}",
-             fontsize=15, fontweight="bold", color="white", y=1.01)
+             fontsize=14, fontweight="bold", color="white", y=1.005)
 plt.tight_layout()
 
 # ── 3. 이미지 버퍼 저장 ───────────────────────────────
@@ -109,18 +130,20 @@ plt.close()
 # ── 4. 텔레그램 전송 ──────────────────────────────────
 latest = data.dropna(how="all").iloc[-1]
 rate_10y = latest.get("10Y Treasury", float("nan"))
-rate_5y  = latest.get("5Y Treasury",  float("nan"))
 rate_2y  = latest.get("2Y Treasury",  float("nan"))
-spread   = rate_10y - rate_2y
-spread_sign = "▲" if spread >= 0 else "▼"
+rate_3m  = latest.get("3M T-Bill",    float("nan"))
+spread_10y_2y = rate_10y - rate_2y
+spread_10y_3m = rate_10y - rate_3m
+sign = lambda x: "▲" if x >= 0 else "▼"
 
 caption = (
     f"📊 *US Treasury Yield Monitor*\n"
     f"📅 {today_str}\n\n"
     f"🔵 10Y: *{rate_10y:.2f}%*\n"
-    f"🟢  5Y: *{rate_5y:.2f}%*\n"
     f"🟠  2Y: *{rate_2y:.2f}%*\n"
-    f"📐 Spread (10Y−2Y): *{spread:+.2f}%* {spread_sign}\n\n"
+    f"🔴  3M: *{rate_3m:.2f}%*\n\n"
+    f"📐 Spread 10Y−2Y: *{spread_10y_2y:+.2f}%* {sign(spread_10y_2y)}\n"
+    f"📐 Spread 10Y−3M: *{spread_10y_3m:+.2f}%* {sign(spread_10y_3m)}\n\n"
     f"_Powered by GitHub Actions + yfinance & FRED_"
 )
 
