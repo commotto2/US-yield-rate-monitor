@@ -17,10 +17,10 @@ end_date   = datetime.date.today()
 start_date = end_date - datetime.timedelta(days=365 + 5)
 
 print("Downloading treasury yield data...")
-raw = yf.download(["^IRX", "^TWO", "^TNX"], start=start_date, end=end_date)["Close"]
+raw = yf.download(["^IRX", "ZT=F", "^TNX"], start=start_date, end=end_date)["Close"]
 data = raw.rename(columns={
     "^IRX": "3M T-Bill",
-    "^TWO": "2Y Treasury",
+    "ZT=F": "2Y Treasury",
     "^TNX": "10Y Treasury",
 })
 data.index = pd.to_datetime(data.index)
