@@ -1,7 +1,6 @@
 import datetime
 import io
 import os
-from io import StringIO
 
 import matplotlib.dates as mdates
 import matplotlib.pyplot as plt
@@ -13,34 +12,20 @@ import yfinance as yf
 TELEGRAM_BOT_TOKEN = os.environ["TELEGRAM_BOT_TOKEN"]
 TELEGRAM_CHAT_ID   = os.environ["TELEGRAM_CHAT_ID"]
 
-# ── 1. 데이터 수집 (1년치만) ──────────────────────────
+# ── 1. 데이터 수집 (모두 yfinance) ────────────────────
 end_date   = datetime.date.today()
-start_date = end_date - datetime.timedelta(days=365 + 5)  # 여유분 5일
+start_date = end_date - datetime.timedelta(days=365 + 5)
 
 print("Downloading treasury yield data...")
-
-# 3개월물 + 10년물: yfinance
-raw = yf.download(["^IRX", "^TNX"], start=start_date, end=end_date)["Close"]
+raw = yf.download(["^IRX", "^TWO", "^TNX"], start=start_date, end=end_date)["Close"]
 data = raw.rename(columns={
     "^IRX": "3M T-Bill",
+    "^TWO": "2Y Treasury",
     "^TNX": "10Y Treasury",
 })
 data.index = pd.to_datetime(data.index)
-
-# 2년물: FRED
-def fetch_fred(series_id: str, col_name: str) -> pd.DataFrame:
-    url = f"https://fred.stlouisfed.org/graph/fredgraph.csv?id={series_id}&observation_start={start_date.strftime('%Y-%m-%d')}"
-    resp = requests.get(url, headers={"User-Agent": "Mozilla/5.0"})
-    print(f"FRED {series_id} status: {resp.status_code}")
-    df = pd.read_csv(StringIO(resp.text))
-    df.columns = ["DATE", col_name]
-    df["DATE"] = pd.to_datetime(df["DATE"], errors="coerce")
-    df = df.dropna(subset=["DATE"]).set_index("DATE")
-    df[col_name] = pd.to_numeric(df[col_name], errors="coerce")
-    return df
-
-data = data.join(fetch_fred("DGS2", "2Y Treasury"), how="outer")
-data = data.loc[start_date.strftime("%Y-%m-%d"):]
+print(f"Downloaded columns: {list(data.columns)}")
+print(f"Row count: {len(data)}")
 
 # ── 2. 그래프 생성 ────────────────────────────────────
 SERIES = [
@@ -84,7 +69,6 @@ for i, p in enumerate(periods):
     for spine in ax.spines.values():
         spine.set_edgecolor("#333344")
 
-    # 최고/최저 점선
     for col, color, label in SERIES:
         if col not in filtered.columns:
             continue
@@ -102,7 +86,6 @@ for i, p in enumerate(periods):
                 f" {label} Lo {lo:.2f}%", color=color,
                 fontsize=7.5, va="top", ha="right")
 
-    # x축 포맷
     if p["days"] <= 90:
         ax.xaxis.set_major_formatter(mdates.DateFormatter("%m-%d"))
         ax.xaxis.set_major_locator(mdates.WeekdayLocator(interval=2))
@@ -141,7 +124,7 @@ caption = (
     f"🔴  3M: *{rate_3m:.2f}%*\n\n"
     f"📐 Spread 10Y−2Y: *{spread_10y_2y:+.2f}%* {sign(spread_10y_2y)}\n"
     f"📐 Spread 10Y−3M: *{spread_10y_3m:+.2f}%* {sign(spread_10y_3m)}\n\n"
-    f"_Powered by GitHub Actions + yfinance & FRED_"
+    f"_Powered by GitHub Actions + yfinance_"
 )
 
 url  = f"https://api.telegram.org/bot{TELEGRAM_BOT_TOKEN}/sendPhoto"
