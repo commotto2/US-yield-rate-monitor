@@ -132,10 +132,9 @@ buf.seek(0)
 plt.close()
 
 # ── 4. 텔레그램 전송 ──────────────────────────────────
-latest = data.dropna(how="all").iloc[-1]
-rate_10y = latest.get("10Y Treasury", float("nan"))
-rate_2y  = latest.get("2Y Treasury",  float("nan"))
-rate_3m  = latest.get("3M T-Bill",    float("nan"))
+rate_10y = data["10Y Treasury"].dropna().iloc[-1]
+rate_2y  = data["2Y Treasury"].dropna().iloc[-1]
+rate_3m  = data["3M T-Bill"].dropna().iloc[-1]
 spread_10y_2y = rate_10y - rate_2y
 spread_10y_3m = rate_10y - rate_3m
 sign = lambda x: "▲" if x >= 0 else "▼"
