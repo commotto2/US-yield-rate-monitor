@@ -15,16 +15,19 @@ TELEGRAM_CHAT_ID   = os.environ["TELEGRAM_CHAT_ID"]
 
 # ── 1. 데이터 수집 ────────────────────────────────────
 end_date   = datetime.date.today()
-start_date = end_date - datetime.timedelta(days=10 * 365 + 3)  # 10년치
+start_date = end_date - datetime.timedelta(days=10 * 365 + 3)
 
 print("Downloading treasury yield data...")
 
-# 10년물: yfinance
-raw = yf.download(["^TNX"], start=start_date, end=end_date)["Close"]
-data = raw.rename(columns={"^TNX": "10Y Treasury"})
+# 3개월물 + 10년물: yfinance
+raw = yf.download(["^IRX", "^TNX"], start=start_date, end=end_date)["Close"]
+data = raw.rename(columns={
+    "^IRX": "3M T-Bill",
+    "^TNX": "10Y Treasury",
+})
 data.index = pd.to_datetime(data.index)
 
-# FRED에서 3개월물(DGS3MO), 2년물(DGS2) 가져오기
+# 2년물: FRED
 def fetch_fred(series_id: str, col_name: str) -> pd.DataFrame:
     url = f"https://fred.stlouisfed.org/graph/fredgraph.csv?id={series_id}"
     resp = requests.get(url, headers={"User-Agent": "Mozilla/5.0"})
@@ -36,8 +39,7 @@ def fetch_fred(series_id: str, col_name: str) -> pd.DataFrame:
     df[col_name] = pd.to_numeric(df[col_name], errors="coerce")
     return df
 
-data = data.join(fetch_fred("DGS3MO", "3M T-Bill"), how="outer")
-data = data.join(fetch_fred("DGS2",   "2Y Treasury"), how="outer")
+data = data.join(fetch_fred("DGS2", "2Y Treasury"), how="outer")
 data = data.loc[start_date.strftime("%Y-%m-%d"):]
 
 # ── 2. 그래프 생성 ────────────────────────────────────
@@ -58,8 +60,8 @@ fig, axes = plt.subplots(4, 1, figsize=(13, 20))
 fig.patch.set_facecolor("#0f1117")
 
 for i, p in enumerate(periods):
-    ax      = axes[i]
-    cutoff  = end_date - datetime.timedelta(days=p["days"])
+    ax       = axes[i]
+    cutoff   = end_date - datetime.timedelta(days=p["days"])
     filtered = data.loc[cutoff.strftime("%Y-%m-%d"):]
 
     ax.set_facecolor("#1a1d27")
