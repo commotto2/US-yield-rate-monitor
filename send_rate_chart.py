@@ -1,6 +1,7 @@
 import datetime
 import io
 import os
+from io import StringIO
 
 import matplotlib.dates as mdates
 import matplotlib.pyplot as plt
@@ -11,21 +12,44 @@ import yfinance as yf
 # ── 설정 ──────────────────────────────────────────────
 TELEGRAM_BOT_TOKEN = os.environ["TELEGRAM_BOT_TOKEN"]
 TELEGRAM_CHAT_ID   = os.environ["TELEGRAM_CHAT_ID"]
+FRED_API_KEY       = os.environ["FRED_API_KEY"]
 
-# ── 1. 데이터 수집 (모두 yfinance) ────────────────────
+# ── 1. 데이터 수집 ────────────────────────────────────
 end_date   = datetime.date.today()
 start_date = end_date - datetime.timedelta(days=365 + 5)
 
 print("Downloading treasury yield data...")
-raw = yf.download(["^IRX", "ZT=F", "^TNX"], start=start_date, end=end_date)["Close"]
+
+# 10년물 + 3개월물: yfinance
+raw = yf.download(["^IRX", "^TNX"], start=start_date, end=end_date)["Close"]
 data = raw.rename(columns={
     "^IRX": "3M T-Bill",
-    "ZT=F": "2Y Treasury",
     "^TNX": "10Y Treasury",
 })
 data.index = pd.to_datetime(data.index)
-print(f"Downloaded columns: {list(data.columns)}")
-print(f"Row count: {len(data)}")
+
+# 2년물: FRED API
+def fetch_fred_api(series_id: str, col_name: str) -> pd.DataFrame:
+    url = "https://api.stlouisfed.org/fred/series/observations"
+    params = {
+        "series_id":         series_id,
+        "api_key":           FRED_API_KEY,
+        "file_type":         "json",
+        "observation_start": start_date.strftime("%Y-%m-%d"),
+        "observation_end":   end_date.strftime("%Y-%m-%d"),
+    }
+    resp = requests.get(url, params=params, timeout=30)
+    print(f"FRED API {series_id} status: {resp.status_code}")
+    observations = resp.json()["observations"]
+    df = pd.DataFrame(observations)[["date", "value"]]
+    df.columns = ["DATE", col_name]
+    df["DATE"] = pd.to_datetime(df["DATE"])
+    df = df.set_index("DATE")
+    df[col_name] = pd.to_numeric(df[col_name], errors="coerce")
+    return df
+
+data = data.join(fetch_fred_api("DGS2", "2Y Treasury"), how="outer")
+data = data.loc[start_date.strftime("%Y-%m-%d"):]
 
 # ── 2. 그래프 생성 ────────────────────────────────────
 SERIES = [
@@ -124,7 +148,7 @@ caption = (
     f"🔴  3M: *{rate_3m:.2f}%*\n\n"
     f"📐 Spread 10Y−2Y: *{spread_10y_2y:+.2f}%* {sign(spread_10y_2y)}\n"
     f"📐 Spread 10Y−3M: *{spread_10y_3m:+.2f}%* {sign(spread_10y_3m)}\n\n"
-    f"_Powered by GitHub Actions + yfinance_"
+    f"_Powered by GitHub Actions + yfinance & FRED_"
 )
 
 url  = f"https://api.telegram.org/bot{TELEGRAM_BOT_TOKEN}/sendPhoto"
