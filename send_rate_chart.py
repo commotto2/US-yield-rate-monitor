@@ -26,9 +26,10 @@ data = raw.rename(columns={
 
 # 2Y: FRED (API 키 불필요)
 print("Downloading 2Y treasury yield from FRED...")
+
 fred_url = (
     "https://fred.stlouisfed.org/graph/fredgraph.csv"
-    f"?id=DGS2&vintage_date={end_date.strftime('%Y-%m-%d')}"
+    f"?id=DGS2&observation_start={start_date.strftime('%Y-%m-%d')}"
 )
 fred_resp = requests.get(fred_url)
 from io import StringIO
