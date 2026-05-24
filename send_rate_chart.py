@@ -15,8 +15,12 @@ end_date   = datetime.date.today()
 start_date = end_date - datetime.timedelta(days=5 * 365)
 
 print("Downloading treasury yield data...")
-raw = yf.download(["^IRX", "^TNX"], start=start_date, end=end_date)["Close"]
-data = raw.rename(columns={"^IRX": "2Y Treasury", "^TNX": "10Y Treasury"})
+raw = yf.download(["^2YR", "^FVX", "^TNX"], start=start_date, end=end_date)["Close"]
+data = raw.rename(columns={
+    "^2YR": "2Y Treasury",
+    "^FVX": "5Y Treasury",
+    "^TNX": "10Y Treasury",
+})
 
 # ── 2. 그래프 생성 ────────────────────────────────────
 fig, axes = plt.subplots(3, 1, figsize=(12, 16))
@@ -28,16 +32,24 @@ periods = [
     {"title": "Recent 5 Years", "days": 5 * 365, "ax": axes[2]},
 ]
 
+SERIES = [
+    ("10Y Treasury", "#4fa3e0", "^TNX"),
+    ("5Y Treasury",  "#50c878", "^FVX"),
+    ("2Y Treasury",  "#f0a500", "^2YR"),
+]
+
 for p in periods:
-    ax  = p["ax"]
-    cutoff   = end_date - datetime.timedelta(days=p["days"])
+    ax      = p["ax"]
+    cutoff  = end_date - datetime.timedelta(days=p["days"])
     filtered = data.loc[cutoff.strftime("%Y-%m-%d"):]
 
     ax.set_facecolor("#1a1d27")
-    ax.plot(filtered.index, filtered["10Y Treasury"],
-            label="10Y (^TNX)", color="#4fa3e0", linewidth=2)
-    ax.plot(filtered.index, filtered["2Y Treasury"],
-            label="2Y  (^2YR)", color="#f0a500", linewidth=2)
+
+    for col, color, ticker in SERIES:
+        if col not in filtered.columns:
+            continue
+        ax.plot(filtered.index, filtered[col],
+                label=f"{col[:2]}Y ({ticker})", color=color, linewidth=2)
 
     ax.set_title(f"US Treasury Yields — {p['title']}",
                  fontsize=13, fontweight="bold", color="white", pad=10)
@@ -50,8 +62,10 @@ for p in periods:
     for spine in ax.spines.values():
         spine.set_edgecolor("#333344")
 
-    # 최고/최저 표시
-    for col, color in [("10Y Treasury", "#4fa3e0"), ("2Y Treasury", "#f0a500")]:
+    # 최고/최저 점선 표시
+    for col, color, _ in SERIES:
+        if col not in filtered.columns:
+            continue
         col_data = filtered[col].dropna()
         if col_data.empty:
             continue
@@ -60,10 +74,10 @@ for p in periods:
         ax.axhline(hi, linestyle=":", linewidth=0.8, color=color, alpha=0.5)
         ax.axhline(lo, linestyle=":", linewidth=0.8, color=color, alpha=0.5)
         ax.text(filtered.index[-1], hi,
-                f" {col[:2]} Hi {hi:.2f}%", color=color,
+                f" {col[:2]}Y Hi {hi:.2f}%", color=color,
                 fontsize=8, va="bottom", ha="right")
         ax.text(filtered.index[-1], lo,
-                f" {col[:2]} Lo {lo:.2f}%", color=color,
+                f" {col[:2]}Y Lo {lo:.2f}%", color=color,
                 fontsize=8, va="top", ha="right")
 
     ax.xaxis.set_major_formatter(mdates.DateFormatter("%Y-%m"))
@@ -73,7 +87,7 @@ fig.suptitle(f"US Treasury Yield Monitor  |  {today_str}",
              fontsize=15, fontweight="bold", color="white", y=1.01)
 plt.tight_layout()
 
-# ── 3. 메모리에서 이미지 버퍼로 저장 ─────────────────
+# ── 3. 이미지 버퍼 저장 ───────────────────────────────
 buf = io.BytesIO()
 plt.savefig(buf, format="png", dpi=150,
             bbox_inches="tight", facecolor=fig.get_facecolor())
@@ -81,10 +95,10 @@ buf.seek(0)
 plt.close()
 
 # ── 4. 텔레그램 전송 ──────────────────────────────────
-# 현재 금리 값 가져오기
-latest = data.dropna().iloc[-1]
-rate_10y = latest["10Y Treasury"]
-rate_2y  = latest["2Y Treasury"]
+latest = data.dropna(how="all").iloc[-1]
+rate_10y = latest.get("10Y Treasury", float("nan"))
+rate_5y  = latest.get("5Y Treasury",  float("nan"))
+rate_2y  = latest.get("2Y Treasury",  float("nan"))
 spread   = rate_10y - rate_2y
 spread_sign = "▲" if spread >= 0 else "▼"
 
@@ -92,6 +106,7 @@ caption = (
     f"📊 *US Treasury Yield Monitor*\n"
     f"📅 {today_str}\n\n"
     f"🔵 10Y: *{rate_10y:.2f}%*\n"
+    f"🟢  5Y: *{rate_5y:.2f}%*\n"
     f"🟠  2Y: *{rate_2y:.2f}%*\n"
     f"📐 Spread (10Y−2Y): *{spread:+.2f}%* {spread_sign}\n\n"
     f"_Powered by GitHub Actions + yfinance_"
