@@ -15,8 +15,8 @@ end_date   = datetime.date.today()
 start_date = end_date - datetime.timedelta(days=5 * 365)
 
 print("Downloading treasury yield data...")
-raw = yf.download(["^2YR", "^TNX"], start=start_date, end=end_date)["Close"]
-data = raw.rename(columns={"^2YR": "2Y Treasury", "^TNX": "10Y Treasury"})
+raw = yf.download(["^IRX", "^TNX"], start=start_date, end=end_date)["Close"]
+data = raw.rename(columns={"^IRX": "2Y Treasury", "^TNX": "10Y Treasury"})
 
 # ── 2. 그래프 생성 ────────────────────────────────────
 fig, axes = plt.subplots(3, 1, figsize=(12, 16))
