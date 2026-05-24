@@ -24,19 +24,12 @@ data = raw.rename(columns={
     "^TNX": "10Y Treasury",
 })
 
-# 2Y: FRED (API 키 불필요)
+# 2Y: FRED via pandas_datareader
 print("Downloading 2Y treasury yield from FRED...")
-
-fred_url = (
-    "https://fred.stlouisfed.org/graph/fredgraph.csv"
-    f"?id=DGS2&observation_start={start_date.strftime('%Y-%m-%d')}"
-)
-fred_resp = requests.get(fred_url)
-from io import StringIO
-fred_df = pd.read_csv(StringIO(fred_resp.text), parse_dates=["DATE"], index_col="DATE")
+import pandas_datareader.data as web
+fred_df = web.DataReader("DGS2", "fred", start_date, end_date)
 fred_df.columns = ["2Y Treasury"]
-fred_df = fred_df.replace(".", float("nan")).astype(float)
-fred_df = fred_df.loc[start_date.strftime("%Y-%m-%d"):]
+fred_df.index = pd.to_datetime(fred_df.index)
 
 # 합치기
 data = data.join(fred_df, how="outer")
