@@ -5,6 +5,7 @@ import requests
 import matplotlib.pyplot as plt
 import matplotlib.dates as mdates
 import yfinance as yf
+import pandas as pd
 
 # ── 설정 ──────────────────────────────────────────────
 TELEGRAM_BOT_TOKEN = os.environ["TELEGRAM_BOT_TOKEN"]
@@ -15,12 +16,30 @@ end_date   = datetime.date.today()
 start_date = end_date - datetime.timedelta(days=5 * 365)
 
 print("Downloading treasury yield data...")
-raw = yf.download(["^2YR", "^FVX", "^TNX"], start=start_date, end=end_date)["Close"]
+
+# 10Y, 5Y: yfinance
+raw = yf.download(["^FVX", "^TNX"], start=start_date, end=end_date)["Close"]
 data = raw.rename(columns={
-    "^2YR": "2Y Treasury",
     "^FVX": "5Y Treasury",
     "^TNX": "10Y Treasury",
 })
+
+# 2Y: FRED (API 키 불필요)
+print("Downloading 2Y treasury yield from FRED...")
+fred_url = (
+    "https://fred.stlouisfed.org/graph/fredgraph.csv"
+    f"?id=DGS2&vintage_date={end_date.strftime('%Y-%m-%d')}"
+)
+fred_resp = requests.get(fred_url)
+from io import StringIO
+fred_df = pd.read_csv(StringIO(fred_resp.text), parse_dates=["DATE"], index_col="DATE")
+fred_df.columns = ["2Y Treasury"]
+fred_df = fred_df.replace(".", float("nan")).astype(float)
+fred_df = fred_df.loc[start_date.strftime("%Y-%m-%d"):]
+
+# 합치기
+data = data.join(fred_df, how="outer")
+data.index = pd.to_datetime(data.index)
 
 # ── 2. 그래프 생성 ────────────────────────────────────
 fig, axes = plt.subplots(3, 1, figsize=(12, 16))
@@ -33,14 +52,14 @@ periods = [
 ]
 
 SERIES = [
-    ("10Y Treasury", "#4fa3e0", "^TNX"),
+    ("10Y Treasury", "#4fa3e0", "FRED:DGS10"),
     ("5Y Treasury",  "#50c878", "^FVX"),
-    ("2Y Treasury",  "#f0a500", "^2YR"),
+    ("2Y Treasury",  "#f0a500", "FRED:DGS2"),
 ]
 
 for p in periods:
-    ax      = p["ax"]
-    cutoff  = end_date - datetime.timedelta(days=p["days"])
+    ax       = p["ax"]
+    cutoff   = end_date - datetime.timedelta(days=p["days"])
     filtered = data.loc[cutoff.strftime("%Y-%m-%d"):]
 
     ax.set_facecolor("#1a1d27")
@@ -62,7 +81,6 @@ for p in periods:
     for spine in ax.spines.values():
         spine.set_edgecolor("#333344")
 
-    # 최고/최저 점선 표시
     for col, color, _ in SERIES:
         if col not in filtered.columns:
             continue
@@ -109,7 +127,7 @@ caption = (
     f"🟢  5Y: *{rate_5y:.2f}%*\n"
     f"🟠  2Y: *{rate_2y:.2f}%*\n"
     f"📐 Spread (10Y−2Y): *{spread:+.2f}%* {spread_sign}\n\n"
-    f"_Powered by GitHub Actions + yfinance_"
+    f"_Powered by GitHub Actions + yfinance & FRED_"
 )
 
 url  = f"https://api.telegram.org/bot{TELEGRAM_BOT_TOKEN}/sendPhoto"
