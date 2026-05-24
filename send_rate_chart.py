@@ -13,9 +13,9 @@ import yfinance as yf
 TELEGRAM_BOT_TOKEN = os.environ["TELEGRAM_BOT_TOKEN"]
 TELEGRAM_CHAT_ID   = os.environ["TELEGRAM_CHAT_ID"]
 
-# ── 1. 데이터 수집 ────────────────────────────────────
+# ── 1. 데이터 수집 (1년치만) ──────────────────────────
 end_date   = datetime.date.today()
-start_date = end_date - datetime.timedelta(days=10 * 365 + 3)
+start_date = end_date - datetime.timedelta(days=365 + 5)  # 여유분 5일
 
 print("Downloading treasury yield data...")
 
@@ -29,7 +29,7 @@ data.index = pd.to_datetime(data.index)
 
 # 2년물: FRED
 def fetch_fred(series_id: str, col_name: str) -> pd.DataFrame:
-    url = f"https://fred.stlouisfed.org/graph/fredgraph.csv?id={series_id}"
+    url = f"https://fred.stlouisfed.org/graph/fredgraph.csv?id={series_id}&observation_start={start_date.strftime('%Y-%m-%d')}"
     resp = requests.get(url, headers={"User-Agent": "Mozilla/5.0"})
     print(f"FRED {series_id} status: {resp.status_code}")
     df = pd.read_csv(StringIO(resp.text))
@@ -52,11 +52,9 @@ SERIES = [
 periods = [
     {"title": "Recent 3 Months", "days": 90},
     {"title": "Recent 1 Year",   "days": 365},
-    {"title": "Recent 5 Years",  "days": 5 * 365},
-    {"title": "Recent 10 Years", "days": 10 * 365},
 ]
 
-fig, axes = plt.subplots(4, 1, figsize=(13, 20))
+fig, axes = plt.subplots(2, 1, figsize=(13, 11))
 fig.patch.set_facecolor("#0f1117")
 
 for i, p in enumerate(periods):
@@ -104,16 +102,13 @@ for i, p in enumerate(periods):
                 f" {label} Lo {lo:.2f}%", color=color,
                 fontsize=7.5, va="top", ha="right")
 
-    # x축 포맷: 기간별로 다르게
+    # x축 포맷
     if p["days"] <= 90:
         ax.xaxis.set_major_formatter(mdates.DateFormatter("%m-%d"))
         ax.xaxis.set_major_locator(mdates.WeekdayLocator(interval=2))
-    elif p["days"] <= 365:
-        ax.xaxis.set_major_formatter(mdates.DateFormatter("%Y-%m"))
-        ax.xaxis.set_major_locator(mdates.MonthLocator(interval=1))
     else:
         ax.xaxis.set_major_formatter(mdates.DateFormatter("%Y-%m"))
-        ax.xaxis.set_major_locator(mdates.MonthLocator(interval=6))
+        ax.xaxis.set_major_locator(mdates.MonthLocator(interval=1))
 
     plt.setp(ax.xaxis.get_majorticklabels(), rotation=30, ha="right")
 
