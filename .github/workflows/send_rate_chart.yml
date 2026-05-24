@@ -1,0 +1,32 @@
+name: Daily US Rate Chart
+
+on:
+  schedule:
+    #    ┌─ 분  ┌─ 시(UTC)  ─ 일  ─ 월  ─ 요일
+    #    0      0           *     *     *
+    # UTC 00:00 = KST 09:00
+    # ↓ 원하는 시간으로 변경하세요
+    - cron: "0 0 * * *"   # 매일 KST 09:00
+  workflow_dispatch:       # 수동 실행 버튼도 활성화
+
+jobs:
+  send-chart:
+    runs-on: ubuntu-latest
+
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+
+      - name: Set up Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: "3.11"
+
+      - name: Install dependencies
+        run: pip install -r requirements.txt
+
+      - name: Run script
+        env:
+          TELEGRAM_BOT_TOKEN: ${{ secrets.TELEGRAM_BOT_TOKEN }}
+          TELEGRAM_CHAT_ID:   ${{ secrets.TELEGRAM_CHAT_ID }}
+        run: python send_rate_chart.py
