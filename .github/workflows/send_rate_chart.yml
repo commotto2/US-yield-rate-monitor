@@ -2,7 +2,7 @@ name: Daily US Rate Chart
 
 on:
   schedule:
-    - cron: "30 23 * * *"   # 매일 KST 08:30
+    - cron: "30 21 * * *"   # 매일 KST 06:30
   workflow_dispatch:
 
 jobs:
